@@ -1,0 +1,7 @@
+field_collection_tabs:
+  version: 1.x
+  js:
+    js/field_collection_tabs.js: {}
+  dependencies:
+    - core/jquery
+    - core/jquery.ui.tabs
