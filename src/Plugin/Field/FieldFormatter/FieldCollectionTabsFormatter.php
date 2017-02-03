@@ -2,31 +2,77 @@
 
 namespace Drupal\field_collection_tabs\Plugin\Field\FieldFormatter;
 
-use Drupal\Component\Utility\Html;
-use Drupal\Core\Field\FieldItemInterface;
+use Drupal\Core\Entity\EntityDisplayRepositoryInterface;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Field\FieldDefinitionInterface;
 use Drupal\Core\Field\FieldItemListInterface;
 use Drupal\Core\Field\FormatterBase;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\field\Entity\FieldConfig;
+use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Plugin implementation of the 'tabs' formatter.
  *
  * @FieldFormatter(
- *   id = "tabs",
+ *   id = "field_collection_tabs",
  *   label = @Translation("Tabs"),
  *   field_types = {
  *     "field_collection"
  *   }
  * )
  */
-class FieldCollectionTabsFormatter extends FormatterBase {
+class FieldCollectionTabsFormatter extends FormatterBase implements ContainerFactoryPluginInterface {
+
+  /**
+   * The entity display repository
+   *
+   * @var \Drupal\Core\Entity\EntityDisplayRepositoryInterface
+   */
+  protected $entityDisplayRepository;
+
+  /**
+   * The entity field manager
+   *
+   * @var \Drupal\Core\Entity\EntityFieldManagerInterface
+   */
+  protected $entityFieldManager;
+
+  /**
+   * The entity type manager
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
+
+  public function __construct($plugin_id, $plugin_definition, FieldDefinitionInterface $field_definition, array $settings, $label, $view_mode, array $third_party_settings, EntityDisplayRepositoryInterface $entity_display_repository, EntityFieldManagerInterface $entity_field_manager, EntityTypeManagerInterface $entity_type_manager) {
+    parent::__construct($plugin_id, $plugin_definition, $field_definition, $settings, $label, $view_mode, $third_party_settings);
+
+    $this->entityDisplayRepository = $entity_display_repository; // Used to get all view modes for all entity types
+    $this->entityFieldManager = $entity_field_manager; // Used to get all fields of the entity type
+    $this->entityTypeManager = $entity_type_manager; // Used to get the render array of the entity
+  }
+
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
+    return new static(
+      $plugin_id,
+      $plugin_definition,
+      $configuration['field_definition'],
+      $configuration['settings'],
+      $configuration['label'],
+      $configuration['view_mode'],
+      $configuration['third_party_settings'],
+      $container->get('entity_display.repository'),
+      $container->get('entity_field.manager'),
+      $container->get('entity_type.manager')
+    );
+  }
 
   /**
    * {@inheritdoc}
    */
   public static function defaultSettings() {
-    // Implement default settings.
     return [
       'title_field' => FALSE,
       'view_mode' => FALSE,
@@ -39,14 +85,13 @@ class FieldCollectionTabsFormatter extends FormatterBase {
   public function settingsForm(array $form, FormStateInterface $form_state) {
     $elements = array();
     $options = array($this->t('No titles'));
-    $fieldDefinition = $this->fieldDefinition;
-    $fields = \Drupal::entityManager()->getFieldDefinitions('field_collection_item', $fieldDefinition->getName());
+    $field_definition = $this->fieldDefinition;
+    $fields = $this->entityFieldManager->getFieldDefinitions('field_collection_item', $field_definition->getName());
     foreach ($fields as $field_name => $field) {
-      // Filter out any fields that are not a Base Field of the entity_type
+      // Filter out any fields that are not a Base Field of the field_collection
       if ($field->getFieldStorageDefinition()->isBaseField() == FALSE) {
-        // Build the options list of field_name => field_label
-        // @TODO: Additional checking if it's a text "string" field before adding it to the options array
-        //  We don't want any images to be tab titles or any wierdness for a title
+        // TODO: Additional checking if it's a text "string" field before adding it to the options array
+        // I don't think we want anything else for a title. Not sure if things would get wierd
         $options[$field_name] = $this->t($field->getLabel());
       }
     }
@@ -59,10 +104,10 @@ class FieldCollectionTabsFormatter extends FormatterBase {
       '#options' => $options
     );
 
-    $displays = \Drupal::entityManager()->getAllViewModes();
+    $displays = $this->entityDisplayRepository->getAllViewModes();
     if (isset($displays['field_collection_item']) && !empty($displays['field_collection_item'])) {
       $displays = $displays['field_collection_item'];
-      $options = array($this->t('Full'));
+      $options = array($this->t('Default'));
       foreach ($displays as $view_mode => $info) {
         $options[$view_mode] = $info['label'];
       }
@@ -90,7 +135,7 @@ class FieldCollectionTabsFormatter extends FormatterBase {
   public function settingsSummary() {
     $summary = [];
     // Implement settings summary.
-    $summary[] = $this->getSetting('title_field') ? $this->t('Title field: ' . $this->getSetting('title_field')) : $this->t('No title');
+    $summary[] = $this->getSetting('title_field') ? $this->t('Title field: ' . $this->getSetting('title_field')) : $this->t('Numbered Tabs');
     $summary[] = $this->getsetting('view_mode')  ? $this->t('View Mode: ' . $this->getSetting('view_mode')) : $this->t('View Mode: Full');
     return $summary;
   }
@@ -106,46 +151,34 @@ class FieldCollectionTabsFormatter extends FormatterBase {
 
     foreach ($items as $delta => $item) {
       if ($item->value !== NULL) {
-        // TODO: is there a better way to get the $title_field value?
         $field_collection_item = $item->getFieldCollectionItem();
-        $title = $field_collection_item->get($title_field)->getValue();
-        $title_value = $title[0]['value'];
+        $title = $field_collection_item->get($title_field)->value;
 
-        // Preventing a tab from not having a title
-        // The $title_value value could be '' at this point or they didn't pick a $title_field
-        if ($title_field == FALSE || $title_value == '') {
-          $title_value = "Tab " . $delta;
+        // Preventing a tab from not having a title, seems bad to not have a title for a tab.
+        if ($title == '' || $title_field == FALSE) {
+          $title = "Tab " . ($delta + 1);
         }
 
-        $titles[] = $title_value;
+        $titles[] = $title;
 
-        $render_item = \Drupal::entityTypeManager()->getViewBuilder('field_collection_item')->view($field_collection_item, $view_mode);
+        $render_item = $this->entityTypeManager->getViewBuilder('field_collection_item')->view($field_collection_item, $view_mode);
         $tabs[] = $render_item;
       }
     }
-    $render_array =  [
+
+    $render_array = [
       '#theme' => 'field_collection_tabs',
       '#titles' => $titles,
       '#tabs' => $tabs,
       '#field_name' => $title_field,
+      '#attached' => [
+        'library' => [
+          'field_collection_tabs/field_collection_tabs',
+        ],
+      ],
     ];
 
     return $render_array;
-  }
-
-  /**
-   * Generate the output appropriate for one field item.
-   *
-   * @param \Drupal\Core\Field\FieldItemInterface $item
-   *   One field item.
-   *
-   * @return string
-   *   The textual output generated.
-   */
-  protected function viewValue(FieldItemInterface $item) {
-    // The text value has no text format assigned to it, so the user input
-    // should equal the output, including newlines.
-    return nl2br(Html::escape($item->value));
   }
 
 }
