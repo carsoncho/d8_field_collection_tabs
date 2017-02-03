@@ -1,3 +1,4 @@
+
 {%
 set classes = [
 'field-collection-item',
@@ -5,10 +6,9 @@ set classes = [
 'field-collection-item--view-mode-' ~ field_collection_item.view_mode|clean_class,
 ]
 %}
-{{ attach_library('field_collection_tabs/field_collection_tabs') }}
 <div{{ attributes.addClass(classes) }}>
   <div class="content"{{ content_attributes }}>
-    <div id="tabs" class="field-collection-tabs">
+    <div class="field-collection-tabs">
       <ul>
         {% for title in titles %}
           <li id="tab-{{loop.index}}">
