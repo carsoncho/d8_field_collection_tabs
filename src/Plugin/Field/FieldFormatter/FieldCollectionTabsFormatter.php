@@ -88,10 +88,7 @@ class FieldCollectionTabsFormatter extends FormatterBase implements ContainerFac
     $field_definition = $this->fieldDefinition;
     $fields = $this->entityFieldManager->getFieldDefinitions('field_collection_item', $field_definition->getName());
     foreach ($fields as $field_name => $field) {
-      // Filter out any fields that are not a Base Field of the field_collection
-      if ($field->getFieldStorageDefinition()->isBaseField() == FALSE) {
-        // TODO: Additional checking if it's a text "string" field before adding it to the options array
-        // I don't think we want anything else for a title. Not sure if things would get wierd
+      if ($field->getFieldStorageDefinition()->isBaseField() == FALSE && $field->getType() == 'string') {
         $options[$field_name] = $this->t($field->getLabel());
       }
     }
